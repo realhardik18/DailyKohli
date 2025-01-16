@@ -11,6 +11,7 @@
   "description": "",
   "type": "module",
   "dependencies": {
+    "csv-writer": "^1.6.0",
     "puppeteer": "^24.1.0"
   }
 }
