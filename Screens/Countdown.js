@@ -1,5 +1,3 @@
-'use client'
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -14,35 +12,35 @@ import { useNavigation } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
+function getMinutesLeftInHour() {
+  const now = new Date();
+  return 60 - now.getMinutes();
+}
+
 function generateParticles(count) {
   return Array.from({ length: count }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
-    dx: (Math.random() - 0.5) * 2,
-    dy: (Math.random() - 0.5) * 2,
-    size: Math.random() * 3 + 2, // Size between 2 and 5
+    dx: (Math.random() - 0.5) * 1,
+    dy: (Math.random() - 0.5) * 1,
+    size: Math.random() * 3 + 2,
+    opacity: new Animated.Value(0), // Initialize opacity for animation
   }));
-}
-
-function getMinutesLeftInDay() {
-  const now = new Date();
-  return 1440 - (now.getHours() * 60 + now.getMinutes());
 }
 
 export default function Countdown() {
   const [timeLeft, setTimeLeft] = useState(calculateTimeLeft());
   const [isNewYear, setIsNewYear] = useState(false);
   const [particles, setParticles] = useState([]);
-  const [particleCount, setParticleCount] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const navigation = useNavigation();
-  const lastUpdateDay = useRef(new Date().getDate());
+  const lastUpdateHour = useRef(new Date().getHours());
   let longPressTimer;
   let vibrationTimer;
 
   function calculateTimeLeft() {
     const now = new Date();
-    const target = new Date(now.getFullYear() + 1, 0, 1); // Next year's January 1st
+    const target = new Date(now.getFullYear() + 1, 0, 1);
     const difference = target - now;
 
     let timeLeft = {};
@@ -66,11 +64,20 @@ export default function Countdown() {
       setTimeLeft(newTimeLeft);
 
       const now = new Date();
-      if (now.getDate() !== lastUpdateDay.current) {
-        lastUpdateDay.current = now.getDate();
-        const newParticles = generateParticles(getMinutesLeftInDay());
+      // Update particles when the hour changes
+      if (now.getHours() !== lastUpdateHour.current) {
+        lastUpdateHour.current = now.getHours();
+        const newParticles = generateParticles(getMinutesLeftInHour());
         setParticles(newParticles);
-        setParticleCount(newParticles.length);
+
+        // Animate new particles
+        newParticles.forEach((particle) => {
+          Animated.timing(particle.opacity, {
+            toValue: 0.5,
+            duration: 1000,
+            useNativeDriver: true,
+          }).start();
+        });
       }
 
       if (Object.keys(newTimeLeft).length === 0) {
@@ -87,9 +94,17 @@ export default function Countdown() {
   }, []);
 
   useEffect(() => {
-    const initialParticles = generateParticles(getMinutesLeftInDay());
+    const initialParticles = generateParticles(getMinutesLeftInHour());
     setParticles(initialParticles);
-    setParticleCount(initialParticles.length);
+
+    // Animate initial particles
+    initialParticles.forEach((particle) => {
+      Animated.timing(particle.opacity, {
+        toValue: 0.5,
+        duration: 1000,
+        useNativeDriver: true,
+      }).start();
+    });
   }, []);
 
   useEffect(() => {
@@ -101,13 +116,19 @@ export default function Countdown() {
           let newDx = p.dx;
           let newDy = p.dy;
 
-          if (newX <= 0 || newX >= width) newDx = -newDx;
-          if (newY <= 0 || newY >= height) newDy = -newDy;
+          if (newX <= 0 || newX >= width) {
+            newDx = -newDx * 0.98;
+            newX = newX <= 0 ? 0 : width;
+          }
+          if (newY <= 0 || newY >= height) {
+            newDy = -newDy * 0.98;
+            newY = newY <= 0 ? 0 : height;
+          }
 
           return {
             ...p,
-            x: Math.max(0, Math.min(newX, width)),
-            y: Math.max(0, Math.min(newY, height)),
+            x: newX,
+            y: newY,
             dx: newDx,
             dy: newDy,
           };
@@ -120,11 +141,11 @@ export default function Countdown() {
 
   const handlePressIn = () => {
     vibrationTimer = setTimeout(() => {
-      Vibration.vibrate([300]); // Vibrate in a pattern
+      Vibration.vibrate([300]);
     }, 2000);
 
     longPressTimer = setTimeout(() => {
-      Vibration.cancel(); // Stop vibration before navigation
+      Vibration.cancel();
       navigation.navigate('Post');
     }, 5000);
   };
@@ -132,24 +153,27 @@ export default function Countdown() {
   const handlePressOut = () => {
     clearTimeout(longPressTimer);
     clearTimeout(vibrationTimer);
-    Vibration.cancel(); // Stop vibration if the user releases early
+    Vibration.cancel();
   };
 
   const timerComponents = Object.entries(timeLeft)
     .map(([interval, value]) => {
-      if (!value) {
-        return null;
+      // Ensure seconds are always displayed, even when 0
+      if (interval === 'seconds' || value) {
+        const suffix = {
+          months: 'mo',
+          days: 'd',
+          hours: 'h',
+          minutes: 'm',
+          seconds: 's',
+        }[interval];
+
+        // Add leading zero for single-digit values, including 0
+        value = value < 10 ? `0${value}` : value;
+
+        return `${value}${suffix}`;
       }
-
-      const suffix = {
-        months: 'mo',
-        days: 'd',
-        hours: 'h',
-        minutes: 'm',
-        seconds: 's',
-      }[interval];
-
-      return `${value}${suffix}`;
+      return null;
     })
     .filter(Boolean)
     .join(' ');
@@ -167,20 +191,26 @@ export default function Countdown() {
                 top: particle.y,
                 width: particle.size,
                 height: particle.size,
+                opacity: particle.opacity, // Use animated opacity
               },
             ]}
           />
         ))}
-
-        {isNewYear ? (
-          <Animated.Text style={[styles.text, { opacity: fadeAnim }]}>Happy New Year!</Animated.Text>
-        ) : (
-          <Text style={styles.text}>{timerComponents}</Text>
-        )}
-
-        <Text style={styles.particleCountText} accessibilityLabel={`Number of particles: ${particleCount}`}>
-          Particles: {particleCount}
-        </Text>
+        
+        <View style={styles.bottomContainer}>
+          {isNewYear ? (
+            <Animated.Text style={[styles.countdownText, { opacity: fadeAnim }]}>
+              Happy New Year!
+            </Animated.Text>
+          ) : (
+            <>
+              <Text style={styles.countdownText}>{timerComponents}</Text>
+              <Text style={styles.particleCountText}>
+                Minutes left this hour: {getMinutesLeftInHour()}
+              </Text>
+            </>
+          )}
+        </View>
       </View>
     </TouchableWithoutFeedback>
   );
@@ -190,28 +220,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  text: {
+  bottomContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  countdownText: {
     color: 'white',
     fontSize: 24,
     fontWeight: 'bold',
-    position: 'absolute',
-    zIndex: 1,
+    marginBottom: 10,
+    textAlign: 'center', // Center-align text
   },
   particle: {
     position: 'absolute',
     backgroundColor: 'white',
     borderRadius: 0,
-    opacity: 0.5
   },
   particleCountText: {
-    position: 'absolute',
-    bottom: 20,
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+    textAlign: 'center', // Center-align text
   },
 });
-
